@@ -1,0 +1,46 @@
+{
+  "bsonType": "object",
+  "required": [
+    "rating",
+    "title",
+    "text",
+    "asin",
+    "parent_asin",
+    "user_id",
+    "timestamp",
+    "helpful_vote",
+    "verified_purchase"
+  ],
+  "properties": {
+    "rating": {
+      "bsonType": "int",
+      "minimum": 1,
+      "maximum": 5
+    },
+    "title": {
+      "bsonType": "string"
+    },
+    "text": {
+      "bsonType": "string"
+    },
+    "asin": {
+      "bsonType": "string"
+    },
+    "parent_asin": {
+      "bsonType": "string"
+    },
+    "user_id": {
+      "bsonType": "string"
+    },
+    "timestamp": {
+      "bsonType": "string"
+    },
+    "helpful_vote": {
+      "bsonType": "int"
+    },
+    "verified_purchase": {
+      "bsonType": "bool"
+    }
+  },
+  "additionalProperties": true
+}

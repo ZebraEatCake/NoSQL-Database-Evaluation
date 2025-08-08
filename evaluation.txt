@@ -1,0 +1,16 @@
+Initial setup time: 
+6 minutes
+
+DB + Collection + row insertion:
+0.0120 seconds.
+
+row insertion:
+0.0040 seconds.
+
+Collection + row insertion:
+0.0080 seconds
+
+Collection = 0.008-0.004=0.004
+DB=0.0120- 0.004-0.004=0.004
+
+
