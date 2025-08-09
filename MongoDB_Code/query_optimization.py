@@ -89,5 +89,5 @@ plt.title("Query Optimization: Update verified_purchase by user_id (10K–100K)"
 plt.grid(True, axis="both")
 plt.legend()
 plt.tight_layout()
-plt.savefig("Images/update_userid_index_vs_noindex.png", dpi=150)
+plt.savefig("../MongoDB_Images/update_userid_index_vs_noindex.png", dpi=150)
 plt.show()
