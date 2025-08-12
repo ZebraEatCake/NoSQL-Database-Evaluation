@@ -1,130 +1,69 @@
 import time
-import psycopg2
+import pymongo
 import matplotlib.pyplot as plt
+import numpy as np
 from pathlib import Path
 
-# =========================
-# Configuration
-# =========================
-DBNAME = "defaultdb"
-USER = "root"
-HOST = "127.0.0.1"
-PORT = 26257
-SSL_MODE = "disable"
+# configuration
+MONGO_URI = "mongodb://localhost:27017/"
+SRC_DB, SRC_COL = "first100k", "user_review"              
+WORK_DB, WORK_COL = "first100k", "user_review_qopt"       
+TARGET_USER = "AGBFYI2DDIKXC5Y4FARTYDTQBMFQ"           
+SAMPLE_SIZES = list(range(10_000, 100_001, 10_000))    
+MATCH_FRACTION = 0.01                                  
+Path("Images").mkdir(exist_ok=True)
 
-SRC_TABLE = "user_review"
-WORK_TABLE = "user_review_qopt"
-TARGET_USER = "AGBFYI2DDIKXC5Y4FARTYDTQBMFQ"
+# connect
+client = pymongo.MongoClient(MONGO_URI)
+src = client[SRC_DB][SRC_COL]
+work = client[WORK_DB][WORK_COL]
 
-SAMPLE_SIZES = list(range(10_000, 100_001, 10_000))  # 10k..100k
-MATCH_FRACTION = 0.01                                 # ~1% of rows will match
-OUT_DIR = Path("CockroachDB_Images")
-OUT_DIR.mkdir(parents=True, exist_ok=True)
-
-# =========================
-# Connect
-# =========================
-conn = psycopg2.connect(
-    dbname=DBNAME, user=USER, host=HOST, port=PORT, sslmode=SSL_MODE
-)
-conn.autocommit = True
-
-# =========================
-# Helpers
-# =========================
 def drop_user_id_index():
-    # CockroachDB index name scoping uses table@index
-    with conn.cursor() as cur:
-        cur.execute(f"DROP INDEX IF EXISTS {WORK_TABLE}@user_id_idx;")
+    try:
+        work.drop_indexes()
+    except pymongo.errors.OperationFailure:
+        pass
 
 def ensure_user_id_index():
-    with conn.cursor() as cur:
-        cur.execute(f"CREATE INDEX IF NOT EXISTS user_id_idx ON {WORK_TABLE} (user_id);")
-        # warm up the optimizer and caches so both paths are comparable
-        cur.execute(f"SELECT COUNT(*) FROM {WORK_TABLE} WHERE user_id = %s;", (TARGET_USER,))
+    work.create_index("user_id")
 
-def prepare_subset(n: int):
-    """Create a fresh working table with n rows and mark ~1% to match TARGET_USER."""
-    with conn.cursor() as cur:
-        # Recreate working table
-        cur.execute(f"DROP TABLE IF EXISTS {WORK_TABLE};")
-        cur.execute(f"""
-            CREATE TABLE {WORK_TABLE} (
-                id INT PRIMARY KEY DEFAULT unique_rowid(),
-                rating INT,
-                title STRING,
-                text STRING,
-                asin STRING,
-                parent_asin STRING,
-                user_id STRING,
-                timestamp STRING,
-                helpful_vote INT,
-                verified_purchase BOOL
-            );
-        """)
+def prepare_subset(n):
+    """Clone first n docs from source into work (no _id collisions), and prep fields."""
+    work.drop()
+    cursor = src.find({}, {"_id": 0}).limit(n)
+    batch = list(cursor)
+    if not batch:
+        raise RuntimeError(f"No data found in {SRC_DB}.{SRC_COL}.")
+    work.insert_many(batch, ordered=False)
 
-        # Copy first n rows from source into work
-        cur.execute(f"""
-            INSERT INTO {WORK_TABLE} (rating, title, text, asin, parent_asin, user_id, timestamp, helpful_vote, verified_purchase)
-            SELECT rating, title, text, asin, parent_asin, user_id, timestamp, helpful_vote, verified_purchase
-            FROM {SRC_TABLE}
-            LIMIT {n};
-        """)
+    work.update_many({}, {"$set": {"verified_purchase": True}})
 
-        # Ensure a known baseline value
-        cur.execute(f"UPDATE {WORK_TABLE} SET verified_purchase = TRUE;")
-
-        # Pick ~1% of rows and force them to match TARGET_USER
-        k = max(1, int(n * MATCH_FRACTION))
-        cur.execute(f"""
-            UPDATE {WORK_TABLE}
-            SET user_id = %s
-            WHERE id IN (
-                SELECT id FROM {WORK_TABLE}
-                ORDER BY id
-                LIMIT %s
-            );
-        """, (TARGET_USER, k))
+    k = max(1, int(n * MATCH_FRACTION))
+    ids = [d["_id"] for d in work.find({}, {"_id": 1}).limit(k)]
+    if ids:
+        work.update_many({"_id": {"$in": ids}}, {"$set": {"user_id": TARGET_USER}})
 
 def time_update(with_index: bool) -> float:
-    """Time the update on TARGET_USER with/without an index on user_id."""
+    """Time update_many on TARGET_USER with/without an index on user_id."""
     drop_user_id_index()
     if with_index:
         ensure_user_id_index()
-    else:
-        # warm-up query for fairness
-        with conn.cursor() as cur:
-            cur.execute(f"SELECT COUNT(*) FROM {WORK_TABLE} WHERE user_id = %s;", (TARGET_USER,))
 
-    # warm-up flip (not timed)
-    with conn.cursor() as cur:
-        cur.execute(f"""
-            UPDATE {WORK_TABLE}
-            SET verified_purchase = TRUE
-            WHERE user_id = %s;
-        """, (TARGET_USER,))
+    work.update_many({"user_id": TARGET_USER}, {"$set": {"verified_purchase": True}})
+    t0 = time.perf_counter()
+    work.update_many({"user_id": TARGET_USER}, {"$set": {"verified_purchase": False}})
+    dt = time.perf_counter() - t0
+    return dt
 
-    # timed flip
-    start = time.perf_counter()
-    with conn.cursor() as cur:
-        cur.execute(f"""
-            UPDATE {WORK_TABLE}
-            SET verified_purchase = FALSE
-            WHERE user_id = %s;
-        """, (TARGET_USER,))
-    return time.perf_counter() - start
-
-# =========================
-# Run the experiment
-# =========================
 with_index_times = []
 without_index_times = []
 
 for n in SAMPLE_SIZES:
-    print(f"\n--- Preparing subset: {n} rows ---")
+    print(f"\n--- Preparing subset: {n} docs ---")
     prepare_subset(n)
 
     print("Timing WITHOUT index on user_id ...")
+    t_no = time.perf_counter()
     dt_no = time_update(with_index=False)
     without_index_times.append(dt_no)
     print(f"  Update time (no index): {dt_no:.6f}s")
@@ -134,18 +73,16 @@ for n in SAMPLE_SIZES:
     with_index_times.append(dt_yes)
     print(f"  Update time (with index): {dt_yes:.6f}s")
 
-# =========================
-# Plot
-# =========================
+# plot
 plt.figure(figsize=(10, 6))
 plt.plot(SAMPLE_SIZES, without_index_times, marker="o", label="Update w/o index")
 plt.plot(SAMPLE_SIZES, with_index_times, marker="o", label="Update with index")
 plt.xticks(SAMPLE_SIZES, [f"{s//1000}K" for s in SAMPLE_SIZES], rotation=45)
-plt.xlabel("Number of Rows")
+plt.xlabel("Number of Documents")
 plt.ylabel("Time (seconds)")
-plt.title("Query Optimization: Time VS Number of Rows (CockroachDB)")
+plt.title("Query Optimization: Time Vs Number of Documents (MongoDB)")
 plt.grid(True, axis="both")
 plt.legend()
 plt.tight_layout()
-plt.savefig(OUT_DIR / "query_optimization.png", dpi=150)
+plt.savefig("MongoDB_Images/query_optimization.png", dpi=150)
 plt.show()
