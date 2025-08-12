@@ -5,7 +5,7 @@ from pathlib import Path
 import pymongo
 import matplotlib.pyplot as plt
 
-# ---------------- Config ----------------
+# configuration
 MONGO_URI = "mongodb://localhost:27017/"
 DB_NAME   = "amazon"
 COLL_NAME = "user_review_integrity_test"
@@ -14,20 +14,18 @@ SIZES = list(range(10_000, 100_001, 10_000))  # 10k..100k
 IMAGES_DIR = Path("Images")
 IMAGES_DIR.mkdir(exist_ok=True)
 
-# ---------------- Connect ----------------
+# connect
 client = pymongo.MongoClient(MONGO_URI)
 db  = client[DB_NAME]
 col = db[COLL_NAME]
 
-# ---------------- Helpers ----------------
+# helper
 def reset_collection():
     """Drop collection (removes indexes & validators), recreate empty."""
     col.drop()
-    # (recreated lazily on first write)
 
 def set_validator(schema_dict):
     """Apply JSON Schema validator to the collection via collMod."""
-    # Ensure collection exists before collMod
     db.create_collection(COLL_NAME) if COLL_NAME not in db.list_collection_names() else None
     db.command({
         "collMod": COLL_NAME,
@@ -56,13 +54,13 @@ def make_docs(n, unique_users=False):
     for i in range(1, n + 1):
         user_id = f"USER{i}" if unique_users else "AFNT6ZJCYQN3WDIKUSWHJDXNND2Q"
         docs.append({
-            "rating": 5,                          # within 1..5
+            "rating": 5,                          
             "title": "cute",
             "text": "very cute",
             "asin": "B09DQ5M2BB",
             "parent_asin": "B09DQ5M2BB",
             "user_id": user_id,
-            "timestamp": "12:33:48 AM",           # keep as string for BSON safety
+            "timestamp": "12:33:48 AM",           
             "helpful_vote": 3,
             "verified_purchase": True
         })
@@ -70,12 +68,12 @@ def make_docs(n, unique_users=False):
 
 def time_insert(n):
     """Insert N docs, return elapsed seconds."""
-    docs = make_docs(n, unique_users=False)  # overridden per scenario if needed
+    docs = make_docs(n, unique_users=False)  
     t0 = time.perf_counter()
     col.insert_many(docs, ordered=False)
     return time.perf_counter() - t0
 
-# ---------------- JSON Schemas (written to files) ----------------
+# json schema
 check_rating_schema = {
     "bsonType": "object",
     "required": ["rating","title","text","asin","parent_asin","user_id","timestamp","helpful_vote","verified_purchase"],
@@ -113,27 +111,25 @@ notnull_schema = {
 Path("validator_check_rating.json").write_text(json.dumps(check_rating_schema, indent=2))
 Path("validator_notnull.json").write_text(json.dumps(notnull_schema, indent=2))
 
-# ---------------- Benchmark Scenarios ----------------
+# constraint
 times_unique = []
 times_check  = []
 times_notnull = []
 
-# 1) UNIQUE(user_id) only
+# 1) unique user id
 for n in SIZES:
     print(f"[UNIQUE] n={n}")
     reset_collection()
     clear_validator()
     drop_non_id_indexes()
-    # Ensure the data won't violate uniqueness:
     docs = make_docs(n, unique_users=True)
     t0 = time.perf_counter()
-    # Create unique index BEFORE insert to measure its enforcement overhead on insert
     ensure_unique_user_id_index()
     col.insert_many(docs, ordered=False)
     elapsed = time.perf_counter() - t0
     times_unique.append(elapsed)
 
-# 2) CHECK (rating 1..5) only
+# 2) check rating
 for n in SIZES:
     print(f"[CHECK rating 1..5] n={n}")
     reset_collection()
@@ -145,7 +141,7 @@ for n in SIZES:
     elapsed = time.perf_counter() - t0
     times_check.append(elapsed)
 
-# 3) NOT NULL (all fields required) only
+# 3) not null all fields
 for n in SIZES:
     print(f"[NOT NULL all fields] n={n}")
     reset_collection()
@@ -157,7 +153,7 @@ for n in SIZES:
     elapsed = time.perf_counter() - t0
     times_notnull.append(elapsed)
 
-# ---------------- Plot ----------------
+# plot
 plt.figure(figsize=(10, 6))
 plt.plot(SIZES, times_unique, marker="o", label="Unique(user_id)")
 plt.plot(SIZES, times_check, marker="o", label="Check: rating 1–5")
@@ -165,9 +161,9 @@ plt.plot(SIZES, times_notnull, marker="o", label="Not Null (all fields)")
 plt.xticks(SIZES, [f"{s//1000}K" for s in SIZES], rotation=45)
 plt.xlabel("Number of Documents (inserted)")
 plt.ylabel("Time (seconds)")
-plt.title("Data Integrity (Time vs Data Size) – Insert cost per constraint")
+plt.title("Constraint: Time vs Data Size (Mongo DB)")
 plt.grid(True, axis="both")
 plt.legend()
 plt.tight_layout()
-plt.savefig("../MongoDB_Images/data_integrity_time_vs_size.png", dpi=150)
+plt.savefig("MongoDB_Images/constraint.png", dpi=150)
 plt.show()

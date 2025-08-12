@@ -3,12 +3,12 @@ import pymongo
 import matplotlib.pyplot as plt
 from concurrent.futures import ThreadPoolExecutor
 
-# --- MongoDB connection ---
+# setup
 client = pymongo.MongoClient("mongodb://localhost:27017/")
 db = client["first100k"]
 collection = db["user_review"]
 
-# --- Queries ---
+# query
 def query_rating_5():
     list(collection.find({"rating": 5}))
 
@@ -32,7 +32,7 @@ def query_cute_word():
         ]
     }))
 
-# All queries in a list
+# qeuries in list
 query_functions = [
     query_rating_5,
     query_asin_equals_parent,
@@ -41,7 +41,7 @@ query_functions = [
     query_cute_word
 ]
 
-# --- Benchmark ---
+# benchmark
 concurrent_counts = [2, 3, 4, 5]  # number of queries running in parallel
 response_times = []
 
@@ -55,14 +55,14 @@ for count in concurrent_counts:
     response_times.append(duration)
     print(f"Time taken: {duration:.4f} seconds")
 
-# --- Plot ---
+# plot
 plt.figure(figsize=(8, 6))
 plt.plot(concurrent_counts, response_times, marker="o", label="Response Time")
 plt.xlabel("Number of Concurrent Queries")
 plt.ylabel("Response Time (seconds)")
-plt.title("Concurrent Queries vs Response Time")
+plt.title("Concurrent Queries: Time VS Number of Concurrent Queries (MongoDB)")
 plt.grid(True)
 plt.legend()
 plt.tight_layout()
-plt.savefig("../MongoDB_Images/concurrent_queries_vs_time.png2", dpi=150)
+plt.savefig("MongoDB_Images/concurrent_queries.png", dpi=150)
 plt.show()

@@ -3,27 +3,27 @@ import pymongo
 import matplotlib.pyplot as plt
 import numpy as np
 
-# ---------------- MongoDB setup ----------------
+# setup connection
 client = pymongo.MongoClient("mongodb://localhost:27017/")
 db = client["operation_benchmark_db"]
 collection = db["benchmark_collection"]
 
-# ---------------- Sample sizes ----------------
+# sample sizes
 sample_sizes = list(range(10_000, 100_001, 10_000))  # 10k to 100k
 
-# ---------------- Results storage ----------------
-# Batch
+# result array
+# batch
 batch_insert_times = []
 batch_update_times = []
 batch_delete_times = []
 
-# Single
+# single
 single_insert_times = []
 single_update_times = []
 single_delete_times = []
 
-# ---------------- Sample schema (your fields) ----------------
-# We can reuse identical content; MongoDB will auto-assign unique _id for each insert
+#sample schema
+# reuse content
 BASE_DOC = {
     "rating": 5,
     "title": "cute",
@@ -37,16 +37,15 @@ BASE_DOC = {
 }
 
 def generate_docs(n):
-    # Use .copy() to ensure distinct dict instances (no accidental _id reuse)
     return [BASE_DOC.copy() for _ in range(n)]
 
 for size in sample_sizes:
     print(f"\n--- Testing with {size} documents ---")
 
-    # =============== BATCH OPERATIONS ===============
+    # batch operation
     collection.drop()
 
-    # INSERT (batch)
+    # insert
     docs = generate_docs(size)
     start_time = time.time()
     collection.insert_many(docs)
@@ -54,34 +53,32 @@ for size in sample_sizes:
     batch_insert_times.append(insert_duration)
     print(f"[Batch] Insert time: {insert_duration:.4f} s")
 
-    # UPDATE (batch)
+    # update
     start_time = time.time()
     collection.update_many({}, {"$set": {"helpful_vote": 10}})
     update_duration = time.time() - start_time
     batch_update_times.append(update_duration)
     print(f"[Batch] Update time: {update_duration:.4f} s")
 
-    # DELETE (batch)
+    # delete
     start_time = time.time()
     collection.delete_many({})
     delete_duration = time.time() - start_time
     batch_delete_times.append(delete_duration)
     print(f"[Batch] Delete time: {delete_duration:.4f} s")
 
-    # =============== SINGLE OPERATIONS ===============
+    # =single operation
     collection.drop()
 
-    # INSERT (single)
+    # insert
     start_time = time.time()
     for _ in range(size):
-        # Use .copy() so MongoDB can assign a fresh _id every time
         collection.insert_one(BASE_DOC.copy())
     insert_duration = time.time() - start_time
     single_insert_times.append(insert_duration)
     print(f"[Single] Insert time: {insert_duration:.4f} s")
 
-    # UPDATE (single)
-    # Use only _id to reduce doc payload traversed by the cursor
+    # update
     ids_cursor = collection.find({}, {"_id": 1})
     start_time = time.time()
     for d in ids_cursor:
@@ -90,7 +87,7 @@ for size in sample_sizes:
     single_update_times.append(update_duration)
     print(f"[Single] Update time: {update_duration:.4f} s")
 
-    # DELETE (single)
+    # delete
     ids_cursor = collection.find({}, {"_id": 1})
     start_time = time.time()
     for d in ids_cursor:
@@ -99,15 +96,15 @@ for size in sample_sizes:
     single_delete_times.append(delete_duration)
     print(f"[Single] Delete time: {delete_duration:.4f} s")
 
-# ---------------- Optional: Clean up DB ----------------
+# clean up
 client.drop_database("operation_benchmark_db")
 
-# ---------------- Plotting ----------------
+# plot
 labels = [f"{s//1000}K" for s in sample_sizes]
 x = np.arange(len(sample_sizes))
 width = 0.25
 
-# --- Chart 1: Batch operations ---
+# batch operation plot
 plt.figure(figsize=(10, 6))
 plt.plot(sample_sizes, batch_insert_times, marker="o", label="Insert")
 plt.plot(sample_sizes, batch_update_times, marker="o", label="Update")
@@ -119,10 +116,10 @@ plt.title("Batch Operations: Time vs Number of Documents (MongoDB)")
 plt.legend()
 plt.grid(True, axis='y')
 plt.tight_layout()
-plt.savefig("../MongoDB_Images/batch_operations.png", dpi=150)
+plt.savefig("MongoDB_Images/batch_operations.png", dpi=150)
 plt.show()
 
-# --- Chart 2: Single operations ---
+# single operation plot
 plt.figure(figsize=(10, 6))
 plt.plot(sample_sizes, single_insert_times, marker="o", label="Insert")
 plt.plot(sample_sizes, single_update_times, marker="o", label="Update")
@@ -134,5 +131,5 @@ plt.title("Single Operations: Time vs Number of Documents (MongoDB)")
 plt.legend()
 plt.grid(True, axis='y')
 plt.tight_layout()
-plt.savefig("../MongoDB_Images/single_operations.png", dpi=150)
+plt.savefig("MongoDB_Images/single_operations.png", dpi=150)
 plt.show()

@@ -1,18 +1,18 @@
 import pandas as pd
 import pymongo
 
-# Read CSV
+# read CSV
 df = pd.read_excel(r"Dataset\dtb_100,000.xlsx")
 
-# Connect to MongoDB
+# connect to MongoDB
 connection = pymongo.MongoClient("mongodb://localhost:27017/")
 db = connection["first100k"]                  # database name
 collection = db["user_review"]              # collection name
 
-# Clear previous collection data
+# clear previous collection data
 collection.delete_many({})
 
-# Insert data
+# Iisert data
 for _, row in df.iterrows():
     collection.insert_one({
         'rating': row['rating'],
