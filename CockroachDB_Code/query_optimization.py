@@ -3,7 +3,7 @@ import psycopg2
 import matplotlib.pyplot as plt
 from pathlib import Path
 
-# configuration
+# ---------- Config ----------
 DBNAME = "defaultdb"
 USER = "root"
 HOST = "127.0.0.1"
@@ -14,7 +14,9 @@ TARGET_USER = "AGBFYI2DDIKXC5Y4FARTYDTQBMFQ"
 SAMPLE_SIZES = list(range(10_000, 100_001, 10_000))  # 10k..100k
 MATCH_FRACTION = 0.01
 
-# connect
+Path("Images").mkdir(exist_ok=True)
+
+# ---------- Connect ----------
 conn = psycopg2.connect(
     dbname=DBNAME,
     user=USER,
@@ -26,6 +28,7 @@ conn.autocommit = True
 
 def drop_user_id_index():
     with conn.cursor() as cur:
+        # CockroachDB does not support IF EXISTS on DROP INDEX, so we must check manually
         cur.execute(f"""
             SELECT index_name
             FROM [SHOW INDEXES FROM {WORK_TABLE}]
@@ -42,8 +45,10 @@ def ensure_user_id_index():
 
 def prepare_subset(n):
     with conn.cursor() as cur:
+        # Drop working table if exists
         cur.execute(f"DROP TABLE IF EXISTS {WORK_TABLE};")
         
+        # Create working table with schema (adjust to your real schema)
         cur.execute(f"""
             CREATE TABLE {WORK_TABLE} (
                 id INT PRIMARY KEY DEFAULT unique_rowid(),
@@ -59,6 +64,7 @@ def prepare_subset(n):
             );
         """)
 
+        # Insert first n rows from user_review into user_review_qopt
         cur.execute(f"""
             INSERT INTO {WORK_TABLE} (rating, title, text, asin, parent_asin, user_id, timestamp, helpful_vote, verified_purchase)
             SELECT rating, title, text, asin, parent_asin, user_id, timestamp, helpful_vote, verified_purchase
@@ -66,8 +72,10 @@ def prepare_subset(n):
             LIMIT {n};
         """)
 
+        # Reset verified_purchase to TRUE everywhere
         cur.execute(f"UPDATE {WORK_TABLE} SET verified_purchase = TRUE;")
 
+        # Force ~1% rows to have TARGET_USER user_id
         k = max(1, int(n * MATCH_FRACTION))
         cur.execute(f"""
             UPDATE {WORK_TABLE}
@@ -84,6 +92,7 @@ def time_update(with_index: bool) -> float:
     if with_index:
         ensure_user_id_index()
     with conn.cursor() as cur:
+        # Reset targeted docs to True so update flips to False
         cur.execute(f"""
             UPDATE {WORK_TABLE}
             SET verified_purchase = TRUE
@@ -120,16 +129,16 @@ for n in SAMPLE_SIZES:
     print(f"  Update time (with index): {dt_yes:.6f}s, Cumulative: {total_with_index:.6f}s")
 
 
-# plot
+# --- Plot ---
 plt.figure(figsize=(10, 6))
 plt.plot(SAMPLE_SIZES, without_index_times, marker="o", label="Update w/o index")
 plt.plot(SAMPLE_SIZES, with_index_times, marker="o", label="Update with index")
 plt.xticks(SAMPLE_SIZES, [f"{s//1000}K" for s in SAMPLE_SIZES], rotation=45)
 plt.xlabel("Number of Documents")
 plt.ylabel("Time (seconds)")
-plt.title("Query Optimization: Time VS Number of Rows (CockroachDB)")
+plt.title("Query Optimization: Update verified_purchase by user_id (10K–100K) (CockroachDB)")
 plt.grid(True, axis="both")
 plt.legend()
 plt.tight_layout()
-plt.savefig("CockroachDB_Images/query_optimization.png", dpi=150)
+plt.savefig("Images/update_userid_index_vs_noindex_cockroachdb.png", dpi=150)
 plt.show()

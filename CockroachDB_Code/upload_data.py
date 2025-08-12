@@ -1,9 +1,9 @@
 import pandas as pd
 import psycopg2
 
-df = pd.read_excel("Dataset\dtb_100,000.xlsx")
+df = pd.read_excel("Dataset/dtb_100,000.xlsx")
 
-# clean and convert columns to correct types
+# Clean and convert columns to correct types
 df['asin'] = df['asin'].fillna('').astype(str)
 df['parent_asin'] = df['parent_asin'].fillna('').astype(str)
 df['user_id'] = df['user_id'].fillna('').astype(str)
